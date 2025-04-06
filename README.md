@@ -61,6 +61,4 @@ The final similarity score is a weighted combination of all three methods, with 
 4. Click "Compare Selected Articles" to see the similarity analysis
 5. Review the comparison results including the overall similarity score and individual method scores
 
-## License
 
-MIT
