@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Duplicate Article Detector</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .article-card {
+            cursor: pointer;
+            transition: all 0.3s;
+            height: 200px;
+            overflow: hidden;
+        }
+
+        .article-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
+        }
+
+        .article-card.selected {
+            border: 3px solid #0d6efd;
+        }
+
+        .article-preview {
+            height: 300px;
+            overflow-y: auto;
+        }
+
+        #results {
+            display: none;
+        }
+
+        .similarity-bar {
+            height: 24px;
+            border-radius: 12px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container mt-5">
+        <h1 class="text-center mb-4">Duplicate Article Detector</h1>
+
+        <div class="mb-4">
+            <h3>Add RSS Feeds</h3>
+            <div class="input-group mb-3">
+                <input type="text" id="feed-url" class="form-control" placeholder="Enter RSS feed URL">
+                <button class="btn btn-primary" id="add-feed">Add Feed</button>
+            </div>
+
+            <div class="mb-3">
+                <h5>Default Feeds:</h5>
+                <div id="default-feeds" class="d-flex flex-wrap gap-2">
+                    <!-- Default feeds will be loaded here -->
+                </div>
+            </div>
+
+            <div class="mb-3">
+                <h5>Added Feeds:</h5>
+                <ul id="feed-list" class="list-group">
+                    <!-- Added feeds will appear here -->
+                </ul>
+            </div>
+
+            <button id="fetch-articles" class="btn btn-success">Fetch Articles</button>
+        </div>
+
+        <div id="articles-container" class="mb-4">
+            <h3>Select Two Articles to Compare</h3>
+            <p class="text-muted">Click on two articles to select them for comparison</p>
+
+            <div id="selected-count" class="alert alert-info">
+                Selected: 0 of 2 articles
+            </div>
+
+            <div id="articles" class="row">
+                <!-- Articles will be loaded here -->
+            </div>
+
+            <div class="text-center mt-3">
+                <button id="compare-btn" class="btn btn-primary btn-lg" disabled>Compare Selected Articles</button>
+            </div>
+        </div>
+
+        <div id="results" class="card mt-4">
+            <div class="card-header bg-primary text-white">
+                <h3 class="mb-0">Comparison Results</h3>
+            </div>
+            <div class="card-body">
+                <div class="row mb-4">
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">Article 1</div>
+                            <div class="card-body article-preview" id="article1-preview">
+                                <!-- Article 1 content -->
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="card">
+                            <div class="card-header">Article 2</div>
+                            <div class="card-body article-preview" id="article2-preview">
+                                <!-- Article 2 content -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="alert" id="duplicate-alert">
+                    <!-- Duplicate alert message -->
+                </div>
+
+                <div class="mb-3">
+                    <h5>Overall Similarity: <span id="similarity-score">0</span>%</h5>
+                    <div class="progress">
+                        <div id="similarity-progress" class="progress-bar similarity-bar" role="progressbar"
+                            style="width: 0%"></div>
+                    </div>
+                </div>
+
+                <div class="row">
+                    <div class="col-md-4">
+                        <h5>Keyword Similarity: <span id="keyword-score">0</span>%</h5>
+                        <div class="progress">
+                            <div id="keyword-progress" class="progress-bar similarity-bar bg-success" role="progressbar"
+                                style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <h5>Entity Similarity: <span id="entity-score">0</span>%</h5>
+                        <div class="progress">
+                            <div id="entity-progress" class="progress-bar similarity-bar bg-info" role="progressbar"
+                                style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="col-md-4">
+                        <h5>Semantic Similarity: <span id="semantic-score">0</span>%</h5>
+                        <div class="progress">
+                            <div id="semantic-progress" class="progress-bar similarity-bar bg-warning"
+                                role="progressbar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            // Store selected articles
+            const selectedArticles = [];
+            const addedFeeds = new Set();
+
+            // Load default feeds
+            const defaultFeeds = [
+                'http://feeds.bbci.co.uk/news/world/rss.xml',
+                'http://rss.cnn.com/rss/edition.rss',
+                'https://www.theguardian.com/world/rss'
+            ];
+
+            const defaultFeedsContainer = document.getElementById('default-feeds');
+            defaultFeeds.forEach(feed => {
+                const badge = document.createElement('span');
+                badge.className = 'badge bg-secondary p-2';
+                badge.textContent = new URL(feed).hostname;
+                badge.style.cursor = 'pointer';
+                badge.setAttribute('data-url', feed);
+                badge.addEventListener('click', function () {
+                    document.getElementById('feed-url').value = feed;
+                });
+                defaultFeedsContainer.appendChild(badge);
+            });
+
+            // Add feed button handler
+            document.getElementById('add-feed').addEventListener('click', function () {
+                const feedUrl = document.getElementById('feed-url').value.trim();
+                if (!feedUrl) return;
+
+                if (addedFeeds.has(feedUrl)) {
+                    alert('This feed has already been added.');
+                    return;
+                }
+
+                try {
+                    // Basic URL validation
+                    new URL(feedUrl);
+                    addFeedToList(feedUrl);
+                    document.getElementById('feed-url').value = '';
+                } catch (e) {
+                    alert('Please enter a valid URL.');
+                }
+            });
+
+            // Function to add feed to the list
+            function addFeedToList(url) {
+                addedFeeds.add(url);
+
+                const feedList = document.getElementById('feed-list');
+                const li = document.createElement('li');
+                li.className = 'list-group-item d-flex justify-content-between align-items-center';
+
+                const urlText = document.createElement('span');
+                urlText.textContent = url;
+                li.appendChild(urlText);
+
+                const removeBtn = document.createElement('button');
+                removeBtn.className = 'btn btn-sm btn-danger';
+                removeBtn.textContent = 'Remove';
+                removeBtn.addEventListener('click', function () {
+                    addedFeeds.delete(url);
+                    li.remove();
+                });
+                li.appendChild(removeBtn);
+
+                feedList.appendChild(li);
+            }
+
+            // Fetch articles button handler
+            document.getElementById('fetch-articles').addEventListener('click', function () {
+                const feedUrls = Array.from(addedFeeds);
+                if (feedUrls.length === 0) {
+                    alert('Please add at least one feed URL.');
+                    return;
+                }
+
+                // Clear previous articles
+                document.getElementById('articles').innerHTML = '';
+                selectedArticles.length = 0;
+                updateSelectedCount();
+
+                // Show loading
+                const loadingEl = document.createElement('div');
+                loadingEl.className = 'text-center p-5';
+                loadingEl.innerHTML = `
+                    <div class="spinner-border text-primary" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <p class="mt-2">Fetching articles...</p>
+                `;
+                document.getElementById('articles').appendChild(loadingEl);
+
+                // Fetch articles
+                fetch('/fetch-feeds', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ feed_urls: feedUrls }),
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        document.getElementById('articles').innerHTML = '';
+
+                        if (!data.articles || data.articles.length === 0) {
+                            document.getElementById('articles').innerHTML = '<div class="col-12 text-center p-5"><p>No articles found.</p></div>';
+                            return;
+                        }
+
+                        data.articles.forEach((article, index) => {
+                            const articleCard = createArticleCard(article, index);
+                            document.getElementById('articles').appendChild(articleCard);
+                        });
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        document.getElementById('articles').innerHTML = '<div class="col-12 text-center p-5"><p>Error fetching articles.</p></div>';
+                    });
+            });
+
+            // Create article card
+            function createArticleCard(article, index) {
+                const col = document.createElement('div');
+                col.className = 'col-md-4 mb-4';
+
+                const card = document.createElement('div');
+                card.className = 'card article-card h-100';
+                card.setAttribute('data-index', index);
+                card.setAttribute('data-article', JSON.stringify(article));
+
+                const cardBody = document.createElement('div');
+                cardBody.className = 'card-body';
+
+                const title = document.createElement('h5');
+                title.className = 'card-title';
+                title.textContent = article.title;
+
+                const summary = document.createElement('p');
+                summary.className = 'card-text';
+                summary.textContent = article.summary.substring(0, 150) + (article.summary.length > 150 ? '...' : '');
+
+                const source = document.createElement('p');
+                source.className = 'card-text text-muted';
+                try {
+                    source.textContent = new URL(article.link).hostname;
+                } catch (e) {
+                    source.textContent = 'Unknown source';
+                }
+
+                cardBody.appendChild(title);
+                cardBody.appendChild(summary);
+                cardBody.appendChild(source);
+                card.appendChild(cardBody);
+
+                // Add click event to select article
+                card.addEventListener('click', function () {
+                    toggleArticleSelection(this, article);
+                });
+
+                col.appendChild(card);
+                return col;
+            }
+
+            // Toggle article selection
+            function toggleArticleSelection(cardElement, article) {
+                const isSelected = cardElement.classList.contains('selected');
+
+                if (isSelected) {
+                    // Remove from selected
+                    cardElement.classList.remove('selected');
+                    const index = selectedArticles.findIndex(a => a.link === article.link);
+                    if (index !== -1) {
+                        selectedArticles.splice(index, 1);
+                    }
+                } else {
+                    // Check if already have 2 selected
+                    if (selectedArticles.length >= 2) {
+                        alert('You can only select two articles. Deselect one first.');
+                        return;
+                    }
+
+                    // Add to selected
+                    cardElement.classList.add('selected');
+                    selectedArticles.push(article);
+                }
+
+                updateSelectedCount();
+            }
+
+            // Update selected count
+            function updateSelectedCount() {
+                document.getElementById('selected-count').textContent = `Selected: ${selectedArticles.length} of 2 articles`;
+                document.getElementById('compare-btn').disabled = selectedArticles.length !== 2;
+            }
+
+            // Compare button handler
+            document.getElementById('compare-btn').addEventListener('click', function () {
+                if (selectedArticles.length !== 2) return;
+
+                fetch('/compare-articles', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        article1: selectedArticles[0],
+                        article2: selectedArticles[1]
+                    }),
+                })
+                    .then(response => response.json())
+                    .then(data => {
+                        // Show results
+                        document.getElementById('results').style.display = 'block';
+
+                        // Update article previews
+                        document.getElementById('article1-preview').innerHTML = `
+                        <h5>${selectedArticles[0].title}</h5>
+                        <p class="text-muted">${new URL(selectedArticles[0].link).hostname}</p>
+                        <p>${selectedArticles[0].summary}</p>
+                        <a href="${selectedArticles[0].link}" target="_blank" class="btn btn-sm btn-outline-primary">Read Full Article</a>
+                    `;
+
+                        document.getElementById('article2-preview').innerHTML = `
+                        <h5>${selectedArticles[1].title}</h5>
+                        <p class="text-muted">${new URL(selectedArticles[1].link).hostname}</p>
+                        <p>${selectedArticles[1].summary}</p>
+                        <a href="${selectedArticles[1].link}" target="_blank" class="btn btn-sm btn-outline-primary">Read Full Article</a>
+                    `;
+
+                        // Update similarity scores
+                        const similarityScore = Math.round(data.similarity_score * 100);
+                        const keywordScore = Math.round(data.keyword_similarity * 100);
+                        const entityScore = Math.round(data.entity_similarity * 100);
+                        const semanticScore = Math.round(data.semantic_similarity * 100);
+
+                        document.getElementById('similarity-score').textContent = similarityScore;
+                        document.getElementById('similarity-progress').style.width = `${similarityScore}%`;
+
+                        document.getElementById('keyword-score').textContent = keywordScore;
+                        document.getElementById('keyword-progress').style.width = `${keywordScore}%`;
+
+                        document.getElementById('entity-score').textContent = entityScore;
+                        document.getElementById('entity-progress').style.width = `${entityScore}%`;
+
+                        document.getElementById('semantic-score').textContent = semanticScore;
+                        document.getElementById('semantic-progress').style.width = `${semanticScore}%`;
+
+                        // Update duplicate alert
+                        const duplicateAlert = document.getElementById('duplicate-alert');
+                        if (data.is_duplicate) {
+                            duplicateAlert.className = 'alert alert-danger';
+                            duplicateAlert.innerHTML = '<strong>DUPLICATE DETECTED!</strong> These articles appear to contain the same information.';
+                        } else if (similarityScore > 40) {
+                            duplicateAlert.className = 'alert alert-warning';
+                            duplicateAlert.innerHTML = '<strong>SIMILAR CONTENT!</strong> These articles are significantly similar but not exact duplicates.';
+                        } else {
+                            duplicateAlert.className = 'alert alert-success';
+                            duplicateAlert.innerHTML = '<strong>UNIQUE CONTENT!</strong> These articles appear to be different.';
+                        }
+
+                        // Scroll to results
+                        document.getElementById('results').scrollIntoView({ behavior: 'smooth' });
+                    })
+                    .catch(error => {
+                        console.error('Error:', error);
+                        alert('Error comparing articles. Please try again.');
+                    });
+            });
+        });
+    </script>
+</body>
+
+</html>
